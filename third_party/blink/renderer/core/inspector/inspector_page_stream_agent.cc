@@ -40,6 +40,7 @@
 #include "cc/base/region.h"
 #include "cc/layers/picture_layer.h"
 #include "cc/trees/clip_node.h"
+#include "cc/trees/layer_tree_host.h"
 #include "cc/trees/transform_node.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/dom_node_ids.h"
@@ -411,15 +412,15 @@ String RenderPicture(sk_sp<SkPicture> input, const gfx::Rect& clip_rect,
     input->playback(canvas, nullptr);
   }
 
-  ImageCacheEntry match = ImageCache::GetInstance()->InsertAndMatchSurface(surface);
+  //ImageCacheEntry match = ImageCache::GetInstance()->InsertAndMatchSurface(surface);
 
 
   sk_sp<SkSurface> output_surface = SkSurface::MakeRasterN32Premul(width, height);
   SkCanvas* output_canvas = output_surface->getCanvas();
 
   surface->draw(output_canvas, 0, 0, nullptr);
-  if (match.buffer) {
-    SubtractImages(output_surface, match.buffer, match.offsetX, match.offsetY);
+ // if (match.buffer) {
+ //   SubtractImages(output_surface, match.buffer, match.offsetX, match.offsetY);
     
     /*
 
@@ -427,7 +428,7 @@ String RenderPicture(sk_sp<SkPicture> input, const gfx::Rect& clip_rect,
     SkPaint p;
     p.setAlphaf(0.5);
     match.buffer->draw(output_canvas, 0, 0, &p); */
-  }
+  //}
   
 
   sk_sp<SkImage> img(output_surface->makeImageSnapshot());
@@ -1057,7 +1058,7 @@ Response InspectorPageStreamAgent::clickNode(int backend_node_id) {
       ->PostTask(
           FROM_HERE,
           base::BindOnce(&Node::DispatchSimulatedClick,
-                    WrapWeakPersistent(node), nullptr, kSendNoEvents,
+                    WrapWeakPersistent(node), nullptr,
                     SimulatedClickCreationScope::kFromUserAgent));
 
   return Response::Success();
